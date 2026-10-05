@@ -1,0 +1,57 @@
+﻿PASS  admin login (seeded super-admin)
+PASS  admin route protected without token (401)
+PASS  admin create movie
+PASS  duplicate title (SRS 6.2)
+FAIL  edit title with full document payload (regression)  {"title":{"_id":"6aafec983ebf474f416f9d6c","type":"movie","title":"E2E Test Movie","slug":"e2e-test-movie-mu9wqllo","description":"Edited from the admin panel","posterUrl":"https://res.cloudinary.com/
+PASS  server-managed fields untouched by title edit
+FAIL  title rename regenerates slug (regression)  slug=e2e-renamed-copy-mu9wqmwo
+PASS  CSV bulk import (SRS 6.2)
+PASS  admin create series (ongoing status, SRS 6.3)
+PASS  create season
+PASS  create episode
+PASS  bulk episode upload (SRS 6.3)
+PASS  episode created with third-party page link
+PASS  episode created with YouTube watch link
+PASS  reorder episodes (SRS 6.3)
+PASS  edit episode with full document payload (regression)
+PASS  edit season with full document payload (regression)
+PASS  reorder genre homepage rows (SRS 6.4)
+PASS  edit genre updates name + slug (regression)
+FAIL  create admin account (SRS 6.8)  {"message":"An account with this email already exists"}
+PASS  RBAC: content-manager blocked from site settings
+PASS  analytics week range + totals
+PASS  CSV report export (SRS 6.11)
+PASS  update site settings (SRS 6.10)
+PASS  analytics structure (SRS 6.11)
+PASS  dashboard stats
+PASS  admin list users
+PASS  activity log (SRS 6.8)
+PASS  home feed rows built
+PASS  custom homepage row live (SRS 6.5)
+PASS  title detail: seasons+episodes+moreLikeThis (SRS 4.5)
+PASS  public settings API (SRS 6.10)
+PASS  search by title/keyword, drafts hidden (SRS 4.4)
+PASS  genres list
+PASS  user login (bcrypt + JWT)
+PASS  auth/me returns profiles (SRS 4.1)
+PASS  RBAC: regular user blocked from admin (SRS 12)
+PASS  watchlist add (SRS 4.7)
+PASS  watchlist status
+PASS  watchlist list
+PASS  watch data playable (SRS 4.6)
+PASS  series Play without episode auto-starts first episode (regression)
+FAIL  page link auto-plays as embed (tmovie-style)  status=200 body={"video":{"url":"https://tmovie.co/series/watch/vincenzo-117376","type":"external","thumbnail":"","episodeId":null},"resumeSeconds":0,"title":{"id":"6aafec9b3ebf474f416f9d94","type":"series","title":"
+PASS  YouTube watch link converted to /embed/
+PASS  watch-history save (SRS 4.7)
+PASS  analytics has real data after watch (SRS 6.11)
+PASS  continue watching with resume position (SRS 4.2)
+PASS  history list
+PASS  notifications endpoint (SRS 4.8)
+PASS  watchlist remove
+PASS  user rates title 9/10
+FAIL  avg rating recomputed & shown  avg=0 yours=null
+PASS  admin ratings moderation list (SRS 6.9)
+PASS  admin removes rating, avg recomputed
+cleanup: removed 10 E2E titles + related seasons/episodes/history/watchlist
+
+RESULT: 49 passed, 5 failed
