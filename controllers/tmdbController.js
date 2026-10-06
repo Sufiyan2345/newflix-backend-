@@ -1070,7 +1070,7 @@ export const tmdbWatch = async (req, res) => {
     if (!source?.url) {
       return res.status(400).json({
         message: 'No playable source',
-        detail: 'Configure a local series mapping or a valid TMDB episode source template.',
+        detail: 'Add an authorized video source to a local series mapping before playing this episode.',
       });
     }
 
@@ -1214,7 +1214,7 @@ export const tmdbMovieWatch = async (req, res) => {
     if (!source?.url) {
       return res.status(400).json({
         message: 'No playable source',
-        detail: 'Map this TMDB movie to a local title with a direct video URL, or set TMDB_MOVIE_SOURCE_TEMPLATE.',
+        detail: 'Map this TMDB movie to a local title with an authorized video source before playing it.',
       });
     }
 

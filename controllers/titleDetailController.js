@@ -251,23 +251,6 @@ const toEmbedUrl = (url) => {
       return url;
     }
 
-    // ---------- Nebula / MovieNerds watch pages ----------
-    // These are watch pages, not direct media files. Many sites like this render a
-    // blank box when framed, but their content is still streamable via the live
-    // Vidsrc player. We remap those watch URLs to the actual embeddable source page.
-    if (/(^|\.)nebulawatch\.tech$/.test(host) || /(^|\.)movienerds\.site$/.test(host)) {
-      const m = url.match(/\/(?:watch\/)?(tv|movie|film|anime)s?\/(\d+)/i);
-      if (m) {
-        const kind = m[1].toLowerCase() === 'film' ? 'movie' : m[1].toLowerCase();
-        const q = u.searchParams;
-        const season = q.get('season') || q.get('s') || u.searchParams.get('sn') || '1';
-        const episode = q.get('episode') || q.get('ep') || q.get('e') || '1';
-        return kind === 'movie'
-          ? `https://vidsrc.su/embed/movie/${m[2]}`
-          : `https://vidsrc.su/embed/${kind}/${m[2]}/${season}/${episode}`;
-      }
-      return url;
-    }
     // ---------- Videasy links (already a player) ----------
     if (host === 'player.videasy.net' || host === 'player.videasy.to') return url;
 
@@ -354,6 +337,13 @@ export const resolveSource = (rawUrl, declaredType) => {
   const declared = String(declaredType || '').toLowerCase();
   if (!url) return { url: '', type: declared || 'mp4' };
 
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+    if (/(^|\.)movienerds\.site$|(^|\.)nebulawatch\.tech$|(^|\.)vidsrc\.su$/.test(host)) {
+      return { url: '', type: 'unsupported' };
+    }
+  } catch { /* malformed URLs are handled by the normal source checks below */ }
+
   // Real media files always play natively — even on localhost/127.0.0.1, where a
   // local media server is a perfectly valid source. Only NON-file local URLs
   // (someone pasting a page of the app itself) are treated as "no video".
@@ -434,7 +424,7 @@ export const probeEmbeddable = async (url) => {
 // A configured provider template can replace the default, but only numeric TMDB
 // coordinates are interpolated. The caller still runs the normal source resolver,
 // so an unknown/blocked provider becomes an honest external handoff.
-const DEFAULT_TMDB_TV_SOURCE = 'https://vidsrc.su/embed/tv/{tmdbId}/{season}/{episode}';
+const DEFAULT_TMDB_TV_SOURCE = '';
 export const buildTmdbEpisodeSourceUrl = (tmdbId, seasonNumber, episodeNumber, template) => {
   const id = Number(tmdbId);
   const season = Number(seasonNumber);
@@ -451,7 +441,7 @@ export const buildTmdbEpisodeSourceUrl = (tmdbId, seasonNumber, episodeNumber, t
 
 // Same contract for movies, which have a single feature and no season/episode
 // coordinates. Only {tmdbId} is interpolated.
-const DEFAULT_TMDB_MOVIE_SOURCE = 'https://vidsrc.su/embed/movie/{tmdbId}';
+const DEFAULT_TMDB_MOVIE_SOURCE = '';
 export const buildTmdbMovieSourceUrl = (tmdbId, template) => {
   const id = Number(tmdbId);
   if (!Number.isSafeInteger(id) || id < 1) return '';

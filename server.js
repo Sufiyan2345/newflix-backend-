@@ -57,6 +57,29 @@ app.use(cors({
   credentials: true,
 }));
 
+let appInitialization;
+export const initializeApp = () => {
+  if (!appInitialization) {
+    appInitialization = connectDB()
+      .then(() => bootstrap())
+      .catch((err) => {
+        appInitialization = null;
+        throw err;
+      });
+  }
+  return appInitialization;
+};
+
+app.use(async (_req, res, next) => {
+  try {
+    await initializeApp();
+    next();
+  } catch (err) {
+    console.error('API initialization failed:', err.message);
+    res.status(503).json({ message: 'API temporarily unavailable' });
+  }
+});
+
 // ================= RATE LIMITING =================
 app.use('/api', apiLimiter);
 
@@ -86,7 +109,7 @@ const DEFAULT_GENRES = [
   'Sci-Fi', 'Crime', 'Documentary', 'Korean Dramas', 'Anime', 'Mystery', 'Fantasy',
 ];
 
-const bootstrap = async () => {
+export const bootstrap = async () => {
   // Super admin from env
   const saEmail = process.env.SUPER_ADMIN_EMAIL;
   const saPass = process.env.SUPER_ADMIN_PASSWORD;
@@ -110,24 +133,4 @@ const bootstrap = async () => {
   if (!(await SiteSettings.findOne())) await SiteSettings.create({});
 };
 
-const PORT = process.env.PORT || 5000;
-
-// Safety net — log unhandled errors instead of crashing
-process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
-
-connectDB().then(async () => {
-  await bootstrap();
-  const server = app.listen(PORT, () =>
-    console.log(`🚀 StreamFlix API running on http://localhost:${PORT} [${process.env.NODE_ENV || 'development'}]`));
-  server.on('error', (err) => {
-    if (err.code === 'EADDRINUSE') {
-      console.error(`Port ${PORT} is already in use. The backend may already be running.`);
-      process.exit(0);
-    }
-    console.error('Server failed to start:', err.message);
-    process.exit(1);
-  });
-}).catch((err) => {
-  console.error('MongoDB connection failed:', err.message);
-  process.exit(1);
-});
+export default app;
