@@ -1,6 +1,4 @@
-﻿import nodemailer from 'nodemailer';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import nodemailer from 'nodemailer';
 import { buildMailTemplates } from './mailTemplates.js';
 
 const normalizeGmailValue = (value) => (value || '').replace(/\s+/g, '').trim();
@@ -50,32 +48,22 @@ const page = (slug) => `${CLIENT_URL}/p/${slug}`;
 // The reference's footer "SRC" breadcrumb (same value the in-app mail view used).
 const MAIL_SRC = '6B63EE39D_697E7E3S:usdc-4091-8719-0fbie-c8499bc_an_PK_EVO';
 
-/* The logo and the three feature icons are shipped with the frontend
-   (frontend/public) and ride along as INLINE (cid:) images — Gmail renders
-   them without needing a host its image proxy can reach. */
-const PUBLIC_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'frontend', 'public');
-
 const MAIL_IMAGE = {
-  logo: { cid: 'netflix-n', file: 'Netflix.png', name: 'netflix-n.png' },          // 116×209 red "N"
-  shield: { cid: 'netflix-shield', file: 'unnamed.png', name: 'netflix-shield.png' },    // "No password needed"
-  block: { cid: 'netflix-block', file: 'unnamed (1).png', name: 'netflix-block.png' },   // "Cancel anytime"
-  devices: { cid: 'netflix-devices', file: 'unnamed (2).png', name: 'netflix-devices.png' }, // "Unlimited entertainment"
+  logo: { file: 'Netflix.png' },          // 116×209 red "N"
+  shield: { file: 'unnamed.png' },        // "No password needed"
+  block: { file: 'unnamed (1).png' },     // "Cancel anytime"
+  devices: { file: 'unnamed (2).png' },   // "Unlimited entertainment"
 };
 
-const mailAttachments = (...keys) => keys.map((key) => ({
-  filename: MAIL_IMAGE[key].name,
-  path: path.join(PUBLIC_DIR, MAIL_IMAGE[key].file),
-  cid: MAIL_IMAGE[key].cid,
-  contentDisposition: 'inline',
-}));
+const mailImageUrl = (key) => `${CLIENT_URL}/${encodeURIComponent(MAIL_IMAGE[key].file)}`;
 
 // Netflix's red "N", drawn `width` px wide (30px in the body, 24px in the footer).
 const nLogo = (width) => {
   const height = Math.round((width * 209) / 116);
-  return `<img src="cid:${MAIL_IMAGE.logo.cid}" width="${width}" height="${height}" alt="Netflix" style="display:block;width:${width}px;height:${height}px;border:0;outline:none;text-decoration:none;">`;
+  return `<img src="${mailImageUrl('logo')}" width="${width}" height="${height}" alt="Netflix" style="display:block;width:${width}px;height:${height}px;border:0;outline:none;text-decoration:none;">`;
 };
 
-const featureIcon = (key) => `<img src="cid:${MAIL_IMAGE[key].cid}" width="25" height="25" alt="" style="display:block;width:25px;height:25px;margin:2px 0 0;border:0;outline:none;">`;
+const featureIcon = (key) => `<img src="${mailImageUrl(key)}" width="25" height="25" alt="" style="display:block;width:25px;height:25px;margin:2px 0 0;border:0;outline:none;">`;
 
 // One row of the 3-point list: 25px icon + 19px gutter = 44px first column.
 const featureRow = (icon, title, copy, gapBottom) => `
@@ -151,7 +139,7 @@ const ensureTransport = async () => {
   }
 };
 
-const sendMail = async ({ to, subject, html, attachments, text }) => {
+const sendMail = async ({ to, subject, html, text }) => {
   await ensureTransport();
   return transporter.sendMail({
     from: `"${FROM_NAME}" <${gmailUser}>`,
@@ -159,7 +147,6 @@ const sendMail = async ({ to, subject, html, attachments, text }) => {
     to,
     subject,
     html,
-    attachments,
     text,
     headers: {
       'X-Auto-Response-Suppress': 'All',
@@ -176,7 +163,6 @@ export const sendVerificationCodeEmail = async (to, otp, subject = `Confirm your
     to,
     subject,
     html: renderOtpTemplate({ otp, subject, recipient: to }),
-    attachments: mailAttachments('logo'),
     text: `${subject}\n\nYour verification code is ${otp}.\n\nThis code expires in 10 minutes.`,
   });
 
@@ -185,7 +171,6 @@ export const sendSignupLinkEmail = async (to, linkUrl, variant = 'create') =>
     to,
     subject: variant === 'finish' ? 'Finish signing up to start watching' : "Let's create your account",
     html: renderSignupTemplate({ variant, linkUrl, recipient: to }),
-    attachments: mailAttachments('logo', 'shield', 'block', 'devices'),
     text: `${accountText({ variant, linkUrl })}\n\nThis message was mailed to ${to} by Newflix.\nSRC: ${MAIL_SRC}`,
   });
 
@@ -196,7 +181,6 @@ export const sendPasswordResetEmail = async (to, linkUrl, name = '') =>
     to,
     subject: 'Reset your password',
     html: renderResetTemplate({ linkUrl, recipient: to, name }),
-    attachments: mailAttachments('logo'),
     text: `Reset your password\n\nHi ${name || to},\n\nUse this secure link to reset your password:\n${linkUrl}\n\nThis link expires in 10 minutes.`,
   });
 
@@ -205,7 +189,6 @@ export const sendPasswordUpdatedEmail = async (to, name = '') =>
     to,
     subject: 'Password updated!',
     html: renderPasswordUpdatedTemplate({ recipient: to, name }),
-    attachments: mailAttachments('logo'),
     text: `Password updated!\n\nYour password has been changed. If you did not make this change, contact us immediately.`,
   });
 
