@@ -7,6 +7,7 @@ import Notification from '../models/Notification.js';
 import OTP from '../models/OTP.js';
 import crypto from 'crypto';
 import { normalizePhone, sendOTPSMS } from '../config/sms.js';
+import { sendVerificationCodeEmail } from '../config/mailer.js';
 
 const MAX_PROFILES = 5;
 
@@ -71,6 +72,82 @@ export const verifyPhoneVerifyOTP = async (req, res) => {
   } catch (err) {
     console.error('verifyPhoneVerifyOTP error:', err);
     res.status(500).json({ message: 'Phone verification failed.' });
+  }
+};
+
+// ---------- ONBOARDING EMAIL RECOVERY OTP ----------
+// Verify the signed-in user's existing account email as a recovery channel.
+export const sendEmailRecoveryOTP = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('email isEmailVerified');
+    if (!user?.email || !user.isEmailVerified) {
+      return res.status(400).json({ message: 'Verify your account email before using it for recovery.' });
+    }
+
+    const code = String(crypto.randomInt(100000, 999999));
+    const email = user.email.toLowerCase();
+    const otpDoc = await OTP.create({
+      email,
+      codeHash: hashOtpCode(code),
+      purpose: 'recovery-email',
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+    try {
+      await sendVerificationCodeEmail(
+        email,
+        code,
+        'Your password recovery verification code',
+      );
+    } catch (err) {
+      otpDoc.consumed = true;
+      await otpDoc.save();
+      throw err;
+    }
+
+    res.json({ message: `Verification code sent to ${email}. It expires in 10 minutes.` });
+  } catch (err) {
+    console.error('sendEmailRecoveryOTP error:', err);
+    res.status(503).json({ message: 'Could not send the email verification code. Check email settings and try again.' });
+  }
+};
+
+export const verifyEmailRecoveryOTP = async (req, res) => {
+  try {
+    const otp = String(req.body?.otp || '');
+    if (!/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ message: 'Enter the 6-digit code sent to your email.' });
+    }
+
+    const user = await User.findById(req.user._id).select('email isEmailVerified onboarding');
+    if (!user?.email || !user.isEmailVerified) {
+      return res.status(400).json({ message: 'Verify your account email before using it for recovery.' });
+    }
+
+    const email = user.email.toLowerCase();
+    const otpDoc = await OTP.findOne({
+      email,
+      purpose: 'recovery-email',
+      consumed: false,
+      expiresAt: { $gt: new Date() },
+    }).sort({ createdAt: -1 });
+    if (!otpDoc) return res.status(400).json({ message: 'Code expired or not found. Request a new code.' });
+
+    otpDoc.attempts += 1;
+    await otpDoc.save();
+    if (otpDoc.attempts > 5) return res.status(429).json({ message: 'Too many incorrect attempts. Request a new code.' });
+    if (otpDoc.codeHash !== hashOtpCode(otp)) return res.status(400).json({ message: 'Invalid code. Please check and try again.' });
+
+    otpDoc.consumed = true;
+    await otpDoc.save();
+    user.onboarding = user.onboarding || {};
+    user.onboarding.recoveryEmail = email;
+    user.markModified('onboarding');
+    await user.save();
+
+    res.json({ message: 'Recovery email verified.', emailVerified: true });
+  } catch (err) {
+    console.error('verifyEmailRecoveryOTP error:', err);
+    res.status(500).json({ message: 'Email verification failed.' });
   }
 };
 

@@ -1,7 +1,7 @@
 import express from 'express';
 import {
   getProfiles, createProfile, updateProfile, deleteProfile, saveSignupProgress, saveOnboarding,
-  sendPhoneVerifyOTP, verifyPhoneVerifyOTP,
+  sendPhoneVerifyOTP, verifyPhoneVerifyOTP, sendEmailRecoveryOTP, verifyEmailRecoveryOTP,
 } from '../controllers/userController.js';
 import {
   getWatchlist, addToWatchlist, removeFromWatchlist, watchlistStatus,
@@ -14,6 +14,7 @@ import {
 import { reportProblem, myReports } from '../controllers/userSupportController.js';
 import { protect } from '../middleware/auth.js';
 import { profileContext } from '../middleware/profileContext.js';
+import { otpLimiter } from '../middleware/rateLimiters.js';
 
 const router = express.Router();
 router.use(protect, profileContext); // resolve active profile for watchlist/history (x-profile-id header)
@@ -51,6 +52,8 @@ router.put('/onboarding', saveOnboarding);
 // Recovery-phone SMS OTP verification (Welcome screen)
 router.post('/phone/send-otp', sendPhoneVerifyOTP);
 router.post('/phone/verify-otp', verifyPhoneVerifyOTP);
+router.post('/email/send-recovery-otp', otpLimiter, sendEmailRecoveryOTP);
+router.post('/email/verify-recovery-otp', otpLimiter, verifyEmailRecoveryOTP);
 
 // Support — "Report a problem" straight from the video player (SRS §10 / §23)
 router.post('/report-problem', reportProblem);

@@ -41,6 +41,7 @@ const userSchema = new mongoose.Schema(
     phoneVerified: { type: Boolean, default: false },
     onboarding: {
       recoveryPhone: { type: String, default: '' },
+      recoveryEmail: { type: String, default: '' },
       devices: { type: [String], default: [] },
       profiles: { type: [String], default: [] },
       maturity: { type: String, default: '' },
