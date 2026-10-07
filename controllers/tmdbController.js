@@ -194,6 +194,7 @@ const GENRE_NAMES = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MIN_USER_CATALOGUE_YEAR = 2023;
+const MIN_EXPLORE_YEAR = 1874;
 const MAX_USER_CATALOGUE_YEAR = new Date().getUTCFullYear();
 
 const isCurrentCatalogueTitle = (item) => {
@@ -1641,7 +1642,7 @@ export const tmdbOnlyOnNetflix = async (req, res) => {
 };
 
 // ==== /tmdb/explore/:type — "Explore All" grid (Netflix-style browse page) ====
-// type: 'movie' | 'tv' | 'all'. Filters: genre (slug), year (2023 through current year),
+// type: 'movie' | 'tv' | 'all'. Filters: genre (slug), year (1874 through current year),
 // lang (ISO-639-1), sort (views|rating|newest|oldest|az|za), page (Load More).
 // Every filter combination is fetched once (6 pages per type), merged, sorted and
 // cached 30 minutes — pagination just slices the cached list.
@@ -1712,7 +1713,7 @@ export const tmdbExplore = async (req, res) => {
   const genre = String(req.query.genre || '');
   const requestedYear = String(req.query.year || '');
   const year = /^\d{4}$/.test(requestedYear)
-    && Number(requestedYear) >= MIN_USER_CATALOGUE_YEAR
+    && Number(requestedYear) >= MIN_EXPLORE_YEAR
     && Number(requestedYear) <= MAX_USER_CATALOGUE_YEAR
     ? requestedYear
     : '';
@@ -1722,7 +1723,9 @@ export const tmdbExplore = async (req, res) => {
   const meta = { type, sort: sortKey, genres: exploreGenres(type), languages: EXPLORE_LANGUAGES };
 
   const respond = (items) => {
-    const currentItems = currentCatalogueItems(items);
+    const currentItems = year
+      ? (Array.isArray(items) ? items : [])
+      : currentCatalogueItems(items);
     const start = (page - 1) * EXPLORE_PAGE_SIZE;
     res.json({
       configured: true,
@@ -1771,7 +1774,7 @@ export const tmdbExplore = async (req, res) => {
       const merged = [];
       lists.forEach((list, i) => (list || []).forEach((item) => {
         const n = normalize(item, fetchTypes[i]);
-        if (!isCurrentCatalogueTitle(n)) return;
+        if (!year && !isCurrentCatalogueTitle(n)) return;
         if (seen.has(n._id)) return;
         seen.add(n._id);
         merged.push(n);
