@@ -6,7 +6,7 @@ const otpSchema = new mongoose.Schema(
     email: { type: String, lowercase: true, index: true },
     phone: { type: String, trim: true, index: true },
     codeHash: { type: String, required: true }, // Hashed verification code or one-time profile-lock ticket.
-    purpose: { type: String, enum: ['signup', 'forgot-password', 'phone-login', 'recovery-email', 'profile-lock'], required: true },
+    purpose: { type: String, enum: ['signup', 'forgot-password', 'phone-login', 'recovery-email', 'profile-lock', 'profile-email'], required: true },
     profileId: { type: mongoose.Schema.Types.ObjectId, ref: 'Profile' },
     lockAction: { type: String, enum: ['set', 'delete'] },
     lockTicketHash: { type: String, default: '' },

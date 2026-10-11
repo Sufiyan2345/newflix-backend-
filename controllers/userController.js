@@ -170,6 +170,96 @@ export const verifyEmailRecoveryOTP = async (req, res) => {
   }
 };
 
+export const sendProfileEmailOTP = async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+      return res.status(400).json({ message: 'Enter a valid email address.' });
+    }
+    const profile = await Profile.findOne({ _id: req.params.id, user: req.user._id });
+    if (!profile) return res.status(404).json({ message: 'Profile not found.' });
+    if (profile.isKidsProfile) return res.status(400).json({ message: 'A profile email can only be added to an adult profile.' });
+
+    const existingProfile = await Profile.findOne({
+      user: req.user._id,
+      profileEmail: email,
+      _id: { $ne: profile._id },
+    }).select('_id');
+    if (existingProfile) return res.status(409).json({ message: 'This email is already assigned to another profile.' });
+
+    await OTP.updateMany(
+      { user: req.user._id, profileId: profile._id, purpose: 'profile-email', consumed: false },
+      { $set: { consumed: true } },
+    );
+    const code = String(crypto.randomInt(100000, 1000000));
+    const otpDoc = await OTP.create({
+      user: req.user._id,
+      email,
+      codeHash: hashOtpCode(code),
+      purpose: 'profile-email',
+      profileId: profile._id,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+    try {
+      await sendVerificationCodeEmail(email, code, 'Your profile email verification code');
+    } catch (err) {
+      otpDoc.consumed = true;
+      await otpDoc.save();
+      throw err;
+    }
+    res.json({ message: `Verification code sent to ${email}. It expires in 10 minutes.`, email });
+  } catch (err) {
+    console.error('sendProfileEmailOTP error:', err);
+    res.status(503).json({ message: 'Could not send the email verification code. Check email settings and try again.' });
+  }
+};
+
+export const verifyProfileEmailOTP = async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const otp = String(req.body?.otp || '');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ message: 'Enter the valid email address and 6-digit verification code.' });
+    }
+    const profile = await Profile.findOne({ _id: req.params.id, user: req.user._id });
+    if (!profile) return res.status(404).json({ message: 'Profile not found.' });
+    if (profile.isKidsProfile) return res.status(400).json({ message: 'A profile email can only be added to an adult profile.' });
+
+    const otpDoc = await OTP.findOne({
+      user: req.user._id,
+      profileId: profile._id,
+      email,
+      purpose: 'profile-email',
+      consumed: false,
+      expiresAt: { $gt: new Date() },
+    }).sort({ createdAt: -1 });
+    if (!otpDoc) return res.status(400).json({ message: 'Code expired or not found. Request a new code.' });
+
+    otpDoc.attempts += 1;
+    await otpDoc.save();
+    if (otpDoc.attempts > 5) return res.status(429).json({ message: 'Too many incorrect attempts. Request a new code.' });
+    if (otpDoc.codeHash !== hashOtpCode(otp)) return res.status(400).json({ message: 'Invalid code. Please check and try again.' });
+
+    const existingProfile = await Profile.findOne({
+      user: req.user._id,
+      profileEmail: email,
+      _id: { $ne: profile._id },
+    }).select('_id');
+    if (existingProfile) return res.status(409).json({ message: 'This email is already assigned to another profile.' });
+
+    otpDoc.consumed = true;
+    await otpDoc.save();
+    profile.profileEmail = email;
+    profile.profileEmailVerified = true;
+    profile.profileEmailMarketingOptOut = Boolean(req.body?.marketingOptOut);
+    await profile.save();
+    res.json({ message: 'Profile email verified and saved.', profileEmail: email, emailVerified: true });
+  } catch (err) {
+    console.error('verifyProfileEmailOTP error:', err);
+    res.status(500).json({ message: 'Could not verify the profile email.' });
+  }
+};
+
 // ---------- PROFILES (Netflix "Who's Watching?") ----------
 // @route GET /api/user/profiles
 export const getProfiles = async (req, res) => {
@@ -376,6 +466,21 @@ export const updateProfile = async (req, res) => {
   try {
     const profile = await Profile.findOne({ _id: req.params.id, user: req.user._id });
     if (!profile) return res.status(404).json({ message: 'Profile not found' });
+    const preferences = req.body.notificationPreferences;
+    if (preferences !== undefined) {
+      const validChannels = ['email', 'text', 'push'];
+      if (
+        !preferences ||
+        typeof preferences !== 'object' ||
+        Array.isArray(preferences) ||
+        Object.entries(preferences).some(([channel, enabled]) => !validChannels.includes(channel) || typeof enabled !== 'boolean')
+      ) {
+        return res.status(400).json({ message: 'Notification preferences must contain boolean email, text, or push values.' });
+      }
+      validChannels.forEach((channel) => {
+        if (preferences[channel] !== undefined) profile.set(`notificationPreferences.${channel}`, preferences[channel]);
+      });
+    }
     const allowed = ['name', 'avatarUrl', 'avatarColor', 'isKidsProfile', 'maturityLimit', 'language', 'autoplayNext'];
     allowed.forEach((k) => { if (req.body[k] !== undefined) profile[k] = req.body[k]; });
     await profile.save();

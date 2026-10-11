@@ -3,7 +3,7 @@ import {
   getProfiles, createProfile, updateProfile, deleteProfile, saveSignupProgress, saveOnboarding,
   sendPhoneVerifyOTP, verifyPhoneVerifyOTP, sendEmailRecoveryOTP, verifyEmailRecoveryOTP,
   sendProfileLockOTP, verifyProfileLockOTP, confirmProfileLockPassword, setProfileLockPIN,
-  deleteProfileLock, verifyProfileLockPIN,
+  deleteProfileLock, verifyProfileLockPIN, sendProfileEmailOTP, verifyProfileEmailOTP,
 } from '../controllers/userController.js';
 import {
   getWatchlist, addToWatchlist, removeFromWatchlist, watchlistStatus,
@@ -32,6 +32,8 @@ router.post('/profiles/:id/lock/confirm-password', authLimiter, confirmProfileLo
 router.post('/profiles/:id/lock/pin', authLimiter, setProfileLockPIN);
 router.post('/profiles/:id/lock/delete', authLimiter, deleteProfileLock);
 router.post('/profiles/:id/lock/verify', authLimiter, verifyProfileLockPIN);
+router.post('/profiles/:id/email/send-otp', otpLimiter, sendProfileEmailOTP);
+router.post('/profiles/:id/email/verify-otp', authLimiter, verifyProfileEmailOTP);
 
 // Watchlist
 router.get('/watchlist', getWatchlist);
