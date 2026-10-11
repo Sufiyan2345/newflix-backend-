@@ -74,15 +74,22 @@ export const maturityFilter = (profile) => {
 /** Merge a maturity fragment into an existing query filter without clobbering it. */
 export const withMaturity = (filter, profile) => {
   const frag = maturityFilter(profile);
-  if (!frag) return filter;
-  if (frag.$or && filter.$or) return { $and: [filter, frag] };
-  if (frag.$or) return { ...filter, ...frag };
-  if (filter.$or) return { $and: [filter, frag] };
-  return { ...filter, ageRating: frag.ageRating };
+  const restrictedTitles = Array.isArray(profile?.restrictedTitles)
+    ? profile.restrictedTitles.map((title) => String(title).trim()).filter(Boolean)
+    : [];
+  const restrictions = restrictedTitles.length
+    ? { $nor: restrictedTitles.map((title) => ({ title: new RegExp(`^${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') })) }
+    : null;
+  const filters = [filter, frag, restrictions].filter(Boolean);
+  return filters.length > 1 ? { $and: filters } : filters[0];
 };
 
 /** Runtime check for a single document (used to gate detail + watch endpoints). */
 export const allowsTitle = (profile, title) => {
+  const titleName = String(title?.title || title?.name || '').trim().toLocaleLowerCase();
+  if (titleName && profile?.restrictedTitles?.some((blocked) => String(blocked).trim().toLocaleLowerCase() === titleName)) {
+    return false;
+  }
   const limitRank = maturityRank(requestLimit(profile));
   if (limitRank === null || limitRank >= MATURITY_ORDER.indexOf('18+')) return true;
   if (limitRank <= MATURITY_ORDER.indexOf('7+') && title?.isKids) return true;

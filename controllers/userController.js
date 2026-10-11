@@ -466,6 +466,18 @@ export const updateProfile = async (req, res) => {
   try {
     const profile = await Profile.findOne({ _id: req.params.id, user: req.user._id });
     if (!profile) return res.status(404).json({ message: 'Profile not found' });
+    if (req.body.restrictedTitles !== undefined) {
+      if (
+        !Array.isArray(req.body.restrictedTitles) ||
+        req.body.restrictedTitles.length > 100 ||
+        req.body.restrictedTitles.some((title) => typeof title !== 'string' || !title.trim() || title.trim().length > 120)
+      ) {
+        return res.status(400).json({ message: 'Provide up to 100 valid restricted title names.' });
+      }
+      profile.restrictedTitles = [...new Map(
+        req.body.restrictedTitles.map((title) => [title.trim().toLocaleLowerCase(), title.trim()])
+      ).values()];
+    }
     const preferences = req.body.notificationPreferences;
     if (preferences !== undefined) {
       const validChannels = ['email', 'text', 'push'];

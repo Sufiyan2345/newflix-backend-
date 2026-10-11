@@ -20,6 +20,7 @@ const profileSchema = new mongoose.Schema(
     profileLockEnabled: { type: Boolean, default: false },
     profileLockPinHash: { type: String, default: '', select: false },
     maturityLimit: { type: String, default: '18+', enum: ['ALL', '7+', '13+', '16+', '18+'] },
+    restrictedTitles: { type: [String], default: [] },
     language: { type: String, default: 'en' },
     autoplayNext: { type: Boolean, default: true },
     notificationPreferences: {
