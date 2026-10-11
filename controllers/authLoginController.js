@@ -80,11 +80,13 @@ export const login = async (req, res) => {
       user: {
         id: user._id, name: user.name, email: user.email, role: user.role,
         isEmailVerified: user.isEmailVerified,
+        passwordless: Boolean(user.passwordless),
         phone: user.phone || '', phoneVerified: Boolean(user.phoneVerified),
         createdAt: user.createdAt, lastLoginAt: user.lastLoginAt,
         membershipActive: await membershipState(user),
         signupStep: user.signupStep, signupPlan: user.signupPlan,
         onboardingDone: user.onboardingDone, onboardingStep: user.onboardingStep,
+        onboarding: { devices: user.onboarding?.devices || [] },
       },
     });
   } catch (err) {
@@ -163,8 +165,11 @@ export const refresh = async (req, res) => {
     const token = req.cookies?.sf_refresh || req.body?.refreshToken;
     if (!token) return res.status(401).json({ message: 'No refresh token' });
     const decoded = verifyRefreshToken(token);
-    const user = await User.findById(decoded.id);
-    if (!user || user.isSuspended) return res.status(401).json({ message: 'Invalid refresh token' });
+    const user = await User.findById(decoded.id).select('+password');
+    if (!user || user.isSuspended || (decoded.sv || 0) !== (user.sessionVersion || 0)) return res.status(401).json({ message: 'Invalid refresh token' });
+    if (decoded.v !== crypto.createHash('sha256').update(user.password).digest('hex').slice(0, 8)) {
+      return res.status(401).json({ message: 'Refresh token is no longer valid.' });
+    }
     issueTokens(user, res);
     res.json({ message: 'Token refreshed' });
   } catch {
@@ -181,6 +186,75 @@ export const logout = async (req, res) => {
   res.clearCookie('sf_access', { path: '/' });
   res.clearCookie('sf_refresh', { path: '/' });
   res.json({ message: 'Logged out' });
+};
+
+// @route POST /api/auth/logout-all
+export const logoutAllDevices = async (req, res) => {
+  try {
+    req.user.sessionVersion = (req.user.sessionVersion || 0) + 1;
+    req.user.isOnline = false;
+    await req.user.save();
+    res.clearCookie('sf_access', { path: '/' });
+    res.clearCookie('sf_refresh', { path: '/' });
+    res.json({ message: 'Signed out of all devices' });
+  } catch (err) {
+    console.error('logoutAllDevices error:', err);
+    res.status(500).json({ message: 'Could not sign out of all devices' });
+  }
+};
+
+// @route POST /api/auth/change-password
+export const changePassword = async (req, res) => {
+  try {
+    const currentPassword = String(req.body?.currentPassword || '');
+    const newPassword = String(req.body?.newPassword || '');
+    const confirmPassword = String(req.body?.confirmPassword || '');
+    const signOutAllDevices = req.body?.signOutAllDevices === true;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({ message: 'Complete all password fields.' });
+    }
+    if (newPassword.length < 8 || newPassword.length > 60) {
+      return res.status(400).json({ message: 'Your new password must be between 8 and 60 characters.' });
+    }
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ message: 'The new passwords do not match.' });
+    }
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ message: 'Choose a password you have not used before.' });
+    }
+
+    const user = await User.findById(req.user._id).select('+password');
+    if (!user) return res.status(404).json({ message: 'Account not found.' });
+    if (user.passwordless || !(await user.comparePassword(currentPassword))) {
+      return res.status(401).json({ message: 'Your current password is incorrect.' });
+    }
+
+    user.password = newPassword;
+    if (signOutAllDevices) {
+      user.sessionVersion = (user.sessionVersion || 0) + 1;
+      user.isOnline = false;
+    }
+    await user.save();
+
+    try {
+      await sendPasswordUpdatedEmail(user.email, user.name);
+    } catch (notifyErr) {
+      console.error('password-updated email error:', notifyErr);
+    }
+
+    if (signOutAllDevices) {
+      res.clearCookie('sf_access', { path: '/' });
+      res.clearCookie('sf_refresh', { path: '/' });
+      return res.json({ message: 'Password updated. All devices have been signed out.', signedOut: true });
+    }
+
+    const accessToken = issueTokens(user, res);
+    return res.json({ message: 'Password updated successfully.', signedOut: false, accessToken });
+  } catch (err) {
+    console.error('changePassword error:', err);
+    return res.status(500).json({ message: 'Could not update your password.' });
+  }
 };
 
 // @route POST /api/auth/forgot-password  { email }
@@ -369,11 +443,13 @@ export const getMe = async (req, res) => {
       user: {
         id: user._id, name: user.name, email: user.email, role: user.role,
         isEmailVerified: user.isEmailVerified,
+        passwordless: Boolean(user.passwordless),
         phone: user.phone || '', phoneVerified: Boolean(user.phoneVerified),
         createdAt: user.createdAt, lastLoginAt: user.lastLoginAt,
         membershipActive: await membershipState(user),
         signupStep: user.signupStep, signupPlan: user.signupPlan,
         onboardingDone: user.onboardingDone, onboardingStep: user.onboardingStep,
+        onboarding: { devices: user.onboarding?.devices || [] },
       },
       profiles,
     });

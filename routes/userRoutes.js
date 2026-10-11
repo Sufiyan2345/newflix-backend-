@@ -2,6 +2,8 @@ import express from 'express';
 import {
   getProfiles, createProfile, updateProfile, deleteProfile, saveSignupProgress, saveOnboarding,
   sendPhoneVerifyOTP, verifyPhoneVerifyOTP, sendEmailRecoveryOTP, verifyEmailRecoveryOTP,
+  sendProfileLockOTP, verifyProfileLockOTP, confirmProfileLockPassword, setProfileLockPIN,
+  deleteProfileLock, verifyProfileLockPIN,
 } from '../controllers/userController.js';
 import {
   getWatchlist, addToWatchlist, removeFromWatchlist, watchlistStatus,
@@ -14,7 +16,7 @@ import {
 import { reportProblem, myReports } from '../controllers/userSupportController.js';
 import { protect } from '../middleware/auth.js';
 import { profileContext } from '../middleware/profileContext.js';
-import { otpLimiter } from '../middleware/rateLimiters.js';
+import { authLimiter, otpLimiter } from '../middleware/rateLimiters.js';
 
 const router = express.Router();
 router.use(protect, profileContext); // resolve active profile for watchlist/history (x-profile-id header)
@@ -24,6 +26,12 @@ router.get('/profiles', getProfiles);
 router.post('/profiles', createProfile);
 router.put('/profiles/:id', updateProfile);
 router.delete('/profiles/:id', deleteProfile);
+router.post('/profiles/:id/lock/send-email', otpLimiter, sendProfileLockOTP);
+router.post('/profiles/:id/lock/verify-email', authLimiter, verifyProfileLockOTP);
+router.post('/profiles/:id/lock/confirm-password', authLimiter, confirmProfileLockPassword);
+router.post('/profiles/:id/lock/pin', authLimiter, setProfileLockPIN);
+router.post('/profiles/:id/lock/delete', authLimiter, deleteProfileLock);
+router.post('/profiles/:id/lock/verify', authLimiter, verifyProfileLockPIN);
 
 // Watchlist
 router.get('/watchlist', getWatchlist);

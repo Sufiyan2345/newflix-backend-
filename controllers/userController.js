@@ -1,4 +1,5 @@
 import User from '../models/User.js';
+import bcrypt from 'bcryptjs';
 import Profile from '../models/Profile.js';
 import Watchlist from '../models/Watchlist.js';
 import WatchHistory from '../models/WatchHistory.js';
@@ -8,6 +9,7 @@ import OTP from '../models/OTP.js';
 import crypto from 'crypto';
 import { normalizePhone, sendOTPSMS } from '../config/sms.js';
 import { sendVerificationCodeEmail } from '../config/mailer.js';
+import { generateProfileUnlockToken } from '../middleware/tokens.js';
 
 const MAX_PROFILES = 5;
 
@@ -15,6 +17,23 @@ const MAX_PROFILES = 5;
 // Real SMS OTP for the recovery phone entered on "Welcome to Netflix!".
 // Uses the same SMS provider and OTP model as phone login.
 const hashOtpCode = (code) => crypto.createHash('sha256').update(code).digest('hex');
+const profileLockTicketExpiry = () => new Date(Date.now() + 10 * 60 * 1000);
+
+const issueProfileLockTicket = async (userId, profileId, action, email) => {
+  const ticket = crypto.randomBytes(32).toString('hex');
+  await OTP.create({
+    user: userId,
+    email,
+    codeHash: hashOtpCode(ticket),
+    purpose: 'profile-lock',
+    profileId,
+    lockAction: action,
+    lockTicketHash: hashOtpCode(ticket),
+    consumed: true,
+    expiresAt: profileLockTicketExpiry(),
+  });
+  return ticket;
+};
 
 // @route POST /api/user/phone/send-otp { phone }  (protected)
 export const sendPhoneVerifyOTP = async (req, res) => {
@@ -156,6 +175,182 @@ export const verifyEmailRecoveryOTP = async (req, res) => {
 export const getProfiles = async (req, res) => {
   const profiles = await Profile.find({ user: req.user._id }).sort({ createdAt: 1 });
   res.json({ items: profiles });
+};
+
+const profileLockAction = (value) => (value === 'set' || value === 'delete' ? value : null);
+
+export const sendProfileLockOTP = async (req, res) => {
+  try {
+    const action = profileLockAction(req.body?.action);
+    if (!action) return res.status(400).json({ message: 'Choose a valid profile lock action.' });
+    const [profile, user] = await Promise.all([
+      Profile.findOne({ _id: req.params.id, user: req.user._id }),
+      User.findById(req.user._id).select('email isEmailVerified'),
+    ]);
+    if (!profile) return res.status(404).json({ message: 'Profile not found.' });
+    if (!user?.email || !user.isEmailVerified) {
+      return res.status(400).json({ message: 'Verify your account email before using email confirmation.' });
+    }
+
+    await OTP.updateMany(
+      {
+        user: req.user._id,
+        profileId: profile._id,
+        purpose: 'profile-lock',
+        $or: [{ consumed: false }, { lockTicketUsed: false }],
+      },
+      { $set: { consumed: true, lockTicketUsed: true } }
+    );
+    const code = String(crypto.randomInt(100000, 1000000));
+    const otpDoc = await OTP.create({
+      user: req.user._id,
+      email: user.email.toLowerCase(),
+      codeHash: hashOtpCode(code),
+      purpose: 'profile-lock',
+      profileId: profile._id,
+      lockAction: action,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+    try {
+      await sendVerificationCodeEmail(user.email, code, 'Your profile lock verification code');
+    } catch (err) {
+      otpDoc.consumed = true;
+      await otpDoc.save();
+      throw err;
+    }
+    res.json({
+      message: `Verification code sent to ${user.email}. It expires in 10 minutes.`,
+      email: user.email,
+    });
+  } catch (err) {
+    console.error('sendProfileLockOTP error:', err);
+    res.status(503).json({ message: 'Could not send the verification code. Please try again.' });
+  }
+};
+
+export const verifyProfileLockOTP = async (req, res) => {
+  try {
+    const action = profileLockAction(req.body?.action);
+    const otp = String(req.body?.otp || '');
+    if (!action || !/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ message: 'Enter the 6-digit code sent to your email.' });
+    }
+    const otpDoc = await OTP.findOne({
+      user: req.user._id,
+      profileId: req.params.id,
+      purpose: 'profile-lock',
+      lockAction: action,
+      consumed: false,
+      expiresAt: { $gt: new Date() },
+    }).sort({ createdAt: -1 });
+    if (!otpDoc) return res.status(400).json({ message: 'Code expired or not found. Request a new one.' });
+    otpDoc.attempts += 1;
+    await otpDoc.save();
+    if (otpDoc.attempts > 5) return res.status(429).json({ message: 'Too many incorrect attempts. Request a new code.' });
+    if (otpDoc.codeHash !== hashOtpCode(otp)) return res.status(400).json({ message: 'Invalid code. Please check and try again.' });
+
+    otpDoc.consumed = true;
+    const ticket = crypto.randomBytes(32).toString('hex');
+    otpDoc.lockTicketHash = hashOtpCode(ticket);
+    otpDoc.lockTicketUsed = false;
+    await otpDoc.save();
+    res.json({ ticket });
+  } catch (err) {
+    console.error('verifyProfileLockOTP error:', err);
+    res.status(500).json({ message: 'Could not verify the email code.' });
+  }
+};
+
+export const confirmProfileLockPassword = async (req, res) => {
+  try {
+    const action = profileLockAction(req.body?.action);
+    const password = String(req.body?.password || '');
+    if (!action || !password) return res.status(400).json({ message: 'Password and a valid action are required.' });
+    const [profile, user] = await Promise.all([
+      Profile.findOne({ _id: req.params.id, user: req.user._id }),
+      User.findById(req.user._id).select('+password'),
+    ]);
+    if (!profile) return res.status(404).json({ message: 'Profile not found.' });
+    if (!user || user.passwordless || !(await user.comparePassword(password))) {
+      return res.status(401).json({ message: 'The account password is incorrect. You can also use an email code.' });
+    }
+    const ticket = await issueProfileLockTicket(user._id, profile._id, action, user.email);
+    res.json({ ticket });
+  } catch (err) {
+    console.error('confirmProfileLockPassword error:', err);
+    res.status(500).json({ message: 'Could not confirm the account password.' });
+  }
+};
+
+const consumeProfileLockTicket = async (req, action) => {
+  const ticket = String(req.body?.ticket || '');
+  if (!/^[a-f0-9]{64}$/i.test(ticket)) return null;
+  return OTP.findOneAndUpdate(
+    {
+      user: req.user._id,
+      profileId: req.params.id,
+      purpose: 'profile-lock',
+      lockAction: action,
+      lockTicketHash: hashOtpCode(ticket),
+      lockTicketUsed: false,
+      expiresAt: { $gt: new Date() },
+    },
+    { $set: { lockTicketUsed: true } },
+    { new: true }
+  );
+};
+
+export const setProfileLockPIN = async (req, res) => {
+  try {
+    const pin = String(req.body?.pin || '');
+    if (!/^\d{4}$/.test(pin)) return res.status(400).json({ message: 'Choose a 4-digit PIN.' });
+    const ticket = await consumeProfileLockTicket(req, 'set');
+    if (!ticket) return res.status(401).json({ message: 'Verification expired or already used. Please confirm your identity again.' });
+    const profile = await Profile.findOne({ _id: req.params.id, user: req.user._id }).select('+profileLockPinHash');
+    if (!profile) return res.status(404).json({ message: 'Profile not found.' });
+    profile.profileLockPinHash = await bcrypt.hash(pin, 12);
+    profile.profileLockEnabled = true;
+    await profile.save();
+    res.json({ message: 'Profile Lock is on.' });
+  } catch (err) {
+    console.error('setProfileLockPIN error:', err);
+    res.status(500).json({ message: 'Could not save the profile PIN.' });
+  }
+};
+
+export const deleteProfileLock = async (req, res) => {
+  try {
+    const ticket = await consumeProfileLockTicket(req, 'delete');
+    if (!ticket) return res.status(401).json({ message: 'Verification expired or already used. Please confirm your identity again.' });
+    const profile = await Profile.findOne({ _id: req.params.id, user: req.user._id }).select('+profileLockPinHash');
+    if (!profile) return res.status(404).json({ message: 'Profile not found.' });
+    profile.profileLockPinHash = '';
+    profile.profileLockEnabled = false;
+    await profile.save();
+    res.json({ message: 'Profile Lock has been removed.' });
+  } catch (err) {
+    console.error('deleteProfileLock error:', err);
+    res.status(500).json({ message: 'Could not remove the profile lock.' });
+  }
+};
+
+export const verifyProfileLockPIN = async (req, res) => {
+  try {
+    const pin = String(req.body?.pin || '');
+    if (!/^\d{4}$/.test(pin)) return res.status(400).json({ message: 'Enter the 4-digit profile PIN.' });
+    const profile = await Profile.findOne({ _id: req.params.id, user: req.user._id }).select('+profileLockPinHash');
+    if (!profile) return res.status(404).json({ message: 'Profile not found.' });
+    if (!profile.profileLockEnabled || !profile.profileLockPinHash) {
+      return res.status(400).json({ message: 'This profile does not have a lock.' });
+    }
+    if (!(await bcrypt.compare(pin, profile.profileLockPinHash))) {
+      return res.status(401).json({ message: 'Incorrect PIN. Please try again.' });
+    }
+    res.json({ unlockToken: generateProfileUnlockToken(req.user._id, profile._id) });
+  } catch (err) {
+    console.error('verifyProfileLockPIN error:', err);
+    res.status(500).json({ message: 'Could not verify the profile PIN.' });
+  }
 };
 
 // @route POST /api/user/profiles { name, isKidsProfile, avatarColor, avatarUrl }

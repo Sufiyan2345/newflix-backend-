@@ -31,6 +31,7 @@ const userSchema = new mongoose.Schema(
     signupPlan: { type: String, default: '', enum: ['', 'mobile', 'basic', 'standard', 'premium'] },
     membershipActive: { type: Boolean, default: false },
     isOnline: { type: Boolean, default: false },
+    sessionVersion: { type: Number, default: 0 },
     // Post-payment personalization (Netflix "simpleSetup"): the 6 screens walked
     // after "Start Membership" — devices → who's watching → maturity → genres →
     // languages → pick 3 titles. onboardingStep tracks the current screen

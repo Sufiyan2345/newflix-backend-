@@ -14,6 +14,7 @@ export const protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
     const user = await User.findById(decoded.id);
     if (!user) return res.status(401).json({ message: 'User no longer exists' });
+    if ((decoded.sv || 0) !== (user.sessionVersion || 0)) return res.status(401).json({ message: 'Session expired. Please log in again.' });
     if (user.isSuspended) return res.status(403).json({ message: 'Account suspended' });
 
     // Any valid protected request is proof the member is currently using the app.
@@ -55,7 +56,7 @@ export const optionalAuth = async (req, res, next) => {
     if (token) {
       const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
       const user = await User.findById(decoded.id);
-      if (user && !user.isSuspended) req.user = user;
+      if (user && !user.isSuspended && (decoded.sv || 0) === (user.sessionVersion || 0)) req.user = user;
     }
   } catch (_) { /* guest */ }
   next();
